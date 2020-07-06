@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: ''
+
+Parameters:
+  NotificationEmail:
+    Type: String
+  BudgetLimit:
+    Type: Number
+
+Resources:
+  KillswitchBudgetTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Endpoint: !GetAtt DisableServicesFunction.Arn
+          Protocol: "lambda"
+
+  KillswitchBudget:
+    Type: AWS::Budgets::Budget
+    Properties: 
+      Budget:
+        BudgetLimit:
+          Amount: !Ref BudgetLimit
+          Unit: USD
+        TimeUnit: MONTHLY
+        BudgetType: COST
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 99
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref NotificationEmail
+            - SubscriptionType: SNS
+              Address: !Ref KillswitchBudgetTopic
+
+  SnsInvokeLambdaPermission:            
+    Type: AWS::Lambda::Permission
+    Properties: 
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref DisableServicesFunction
+      Principal: 'sns.amazonaws.com'
+      SourceArn: !Ref KillswitchBudgetTopic              
+
+  DisableServicesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: disable-services
+      Handler: app.handler
+      Runtime: nodejs12.x
+      MemorySize: 256  
+      Policies:
+      - AWSLambdaExecute
+      - Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+            - cloudfront:ListDistributions
+            - cloudfront:GetDistributionConfig
+            - cloudfront:UpdateDistribution
+            - 'apigateway:*'
+            Resource: '*'  
